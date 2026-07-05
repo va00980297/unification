@@ -23,3 +23,8 @@ dist-newstyle/
 *.o
 *.hi
 .vscode/
+# LaTeX
+*.aux
+*.log
+*.out
+*.synctex.gz
