@@ -1,0 +1,11 @@
+cabal-version: 3.0
+name: unification
+version: 0.1.0.0
+
+executable unification
+  main-is: ./main.hs
+  hs-source-dirs: ./src/
+  build-depends:
+      base >= 4.17 && < 5,
+      template-haskell
+  default-language: Haskell2010
