@@ -1,60 +1,64 @@
 module Main where
 
 import Data.Maybe (isNothing)
-import Term (Term (Func, Var))
-import Unify (check, decompose, delete, eliminate, conflict, swap, unify)
+import Term (Term (Var), mkFunc)
+import Unify (conflict, decompose, delete, eliminate, occursCheck, swap, unify)
 
 main :: IO ()
 main = do
   testDelete
   testConflict
-  testCheck
+  testOccursCheck
   testSwap
   testDecompose
   testEliminate
+  testUnify
 
 ---------------------------------------------------------
 -- assert
 ---------------------------------------------------------
-
 assertEqual :: (Eq a, Show a) => a -> a -> String -> IO ()
 assertEqual actual expected msg =
   if actual == expected
     then putStrLn ("PASS: " ++ msg)
     else do
       putStrLn ("FAIL: " ++ msg)
-      putStrLn ("  expected: " ++ show expected)
-      putStrLn ("  but got : " ++ show actual)
+      putStrLn $ "  expected:\n    " ++ show expected
+      putStrLn $ "  but got:\n    " ++ show actual
 
 ---------------------------------------------------------
 -- Terms
 ---------------------------------------------------------
-
 x :: Term
 x = Var "x"
 
 y :: Term
 y = Var "y"
 
+z :: Term
+z = Var "z"
+
 a :: Term
-a = Func "a" []
+a = mkFunc "a" 0 []
 
 b :: Term
-b = Func "b" []
+b = mkFunc "b" 0 []
+
+c :: Term
+c = mkFunc "c" 0 []
 
 f1 :: Term
-f1 = Func "f" [a]
+f1 = mkFunc "f" 1 [a]
 
 f2 :: Term
-f2 = Func "f" [a, b]
+f2 = mkFunc "f" 2 [a, b]
 
 g2 :: Term
-g2 = Func "g" [a, b]
+g2 = mkFunc "g" 2 [a, b]
 
 ---------------------------------------------------------
 -- DELETE
 ---------------------------------------------------------
-
 testDelete :: IO ()
 testDelete = do
   print "========== TEST DELETE =========="
@@ -66,7 +70,6 @@ testDelete = do
 ---------------------------------------------------------
 -- CONFLICT
 ---------------------------------------------------------
-
 testConflict :: IO ()
 testConflict = do
   print "========== TEST CONFLICT =========="
@@ -77,17 +80,15 @@ testConflict = do
 ---------------------------------------------------------
 -- CHECK
 ---------------------------------------------------------
-
-testCheck :: IO ()
-testCheck = do
-  print "========== TEST CHECK =========="
-  assertEqual (check [(x, a)]) True "valid check"
-  assertEqual (check [(x, Func "f" [x])]) False "occurs check"
+testOccursCheck :: IO ()
+testOccursCheck = do
+  print "========== TEST occursCheck=========="
+  assertEqual (occursCheck [(x, a)]) True "valid check"
+  assertEqual (occursCheck [(x, mkFunc "f" 1 [x])]) False "occurs check"
 
 ---------------------------------------------------------
 -- SWAP
 ---------------------------------------------------------
-
 testSwap :: IO ()
 testSwap = do
   print "========== TEST SWAP =========="
@@ -97,15 +98,13 @@ testSwap = do
 ---------------------------------------------------------
 -- DECOMPOSE
 ---------------------------------------------------------
-
 testDecompose :: IO ()
 testDecompose = do
   print "========== TEST DECOMPOSE =========="
   assertEqual
-    (decompose [(Func "f" [x, y], Func "f" [a, b])])
+    (decompose [(mkFunc "f" 2 [x, y], mkFunc "f" 2 [a, b])])
     [(x, a), (y, b)]
     "decompose function"
-
   assertEqual
     (decompose [(a, b)])
     [(a, b)]
@@ -118,18 +117,99 @@ testEliminate :: IO ()
 testEliminate = do
   print "========== TEST ELIMINATE =========="
   assertEqual
-    (eliminate [(x, a), (x, Func "f" [y]), (y, y)])
-    [(x, a), (a, Func "f" [y])]
-    "eliminate"
+    (eliminate [(x, a), (x, mkFunc "f" 1 [y]), (y, y)])
+    [(x, a), (a, mkFunc "f" 1 [y]), (y, y)]
+    "elimination"
+  assertEqual
+    (eliminate [(mkFunc "f" 2 [a, x], b), (x, y), (a, Var "z")])
+    [(mkFunc "f" 2 [a, y], b), (x, y), (a, Var "z")]
+    "elimination"
 
 ---------------------------------------------------------
 -- UNIFY
 ---------------------------------------------------------
-
 testUnify :: IO ()
 testUnify = do
   print "========== TEST UNIFY =========="
+
+  -- Basic: variable unifies with constant
+  -- x ≐ b, a ≐ y  →  {x ↦ b, y ↦ a}
   assertEqual
     (unify [(x, b), (a, y)])
     (Just [(x, b), (y, a)])
     "unify two var with const"
+
+  -- Decompose then eliminate
+  -- f(a, x) ≐ f(a, b)  →  {x ↦ b}
+  assertEqual
+    (unify [(mkFunc "f" 2 [a, x], mkFunc "f" 2 [a, b])])
+    (Just [(x, b)])
+    "unify two functions"
+
+  -- Nested decomposition
+  -- f(x, g(y)) ≐ f(a, g(b))  →  {x ↦ a, y ↦ b}
+  assertEqual
+    (unify [(mkFunc "f" 2 [x, mkFunc "g" 1 [y]], mkFunc "f" 2 [a, mkFunc "g" 1 [b]])])
+    (Just [(x, a), (y, b)])
+    "nested decomposition"
+
+  -- Variable unifies with variable
+  -- x ≐ y  →  {x ↦ y}  (or {y ↦ x}, depending on orientation)
+  assertEqual
+    (unify [(x, y)])
+    (Just [(x, y)])
+    "variable unifies with variable"
+
+  -- Chained elimination: x ≐ y, y ≐ a  →  {x ↦ a, y ↦ a}
+  assertEqual
+    (unify [(x, y), (y, a)])
+    (Just [(x, a), (y, a)])
+    "chained variable elimination"
+
+  -- Already unified: empty set
+  assertEqual
+    (unify [])
+    (Just [])
+    "empty equation set"
+
+  -- Conflict: different function symbols
+  -- f(a) ≐ g(a)  →  Nothing
+  assertEqual
+    (unify [(mkFunc "f" 1 [a], mkFunc "g" 1 [a])])
+    Nothing
+    "conflict: different function symbols"
+
+  -- Conflict: different arity
+  -- f(a) ≐ f(a, b)  →  Nothing
+  assertEqual
+    (unify [(mkFunc "f" 1 [a], mkFunc "f" 2 [a, b])])
+    Nothing
+    "conflict: different arity"
+
+  -- Occurs check failure
+  -- x ≐ f(x)  →  Nothing
+  assertEqual
+    (unify [(x, mkFunc "f" 1 [x])])
+    Nothing
+    "occurs check: x in f(x)"
+
+  -- Occurs check failure nested
+  -- x ≐ f(g(x))  →  Nothing
+  assertEqual
+    (unify [(x, mkFunc "f" 1 [mkFunc "g" 1 [x]])])
+    Nothing
+    "occurs check: x nested in f(g(x))"
+
+  -- Multiple variables, one shared
+  -- f(x, x) ≐ f(a, a)  →  {x ↦ a}
+  assertEqual
+    (unify [(mkFunc "f" 2 [x, x], mkFunc "f" 2 [a, a])])
+    (Just [(x, a)])
+    "same variable appears twice"
+
+  -- Multiple variables, conflict via chaining
+  -- x ≐ a, x ≐ b  →  Nothing  (a ≠ b)
+  assertEqual
+    (unify [(x, a), (x, b)])
+    Nothing
+    "conflict via chained elimination"
