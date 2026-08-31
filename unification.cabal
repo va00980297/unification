@@ -8,6 +8,9 @@ executable unification
   other-modules:
       Term
       Unify
+      Match
+      UnifyModulo
+      Rewrite
   build-depends:
       base >= 4.17 && < 5,
       containers,

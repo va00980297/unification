@@ -29,12 +29,25 @@ data Term
 ------------------------------------------------------------
 -- A set of equations to be unified.
 --
+-- Used in module Unify
+--
 -- Each pair represents an equation:
 --
 --   t1 ≐ t2
 ------------------------------------------------------------
 
 type EqSet = [(Term, Term)]
+
+------------------------------------------------------------
+-- A set of substitutions found.
+--
+-- Used in module Match
+--
+-- Each pair represents an Matching:
+--
+-- p matches t
+------------------------------------------------------------
+type Sub = [(Term, Term)]
 
 ------------------------------------------------------------
 -- Smart constructor for function terms.

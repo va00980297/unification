@@ -126,32 +126,10 @@ eliminate set = go set []
   where
     go [] processed = processed
     go ((Var x, t) : xs) processed =
-      go (sub xs (Var x) t) (sub processed (Var x) t ++ [(Var x, t)])
+      go (substitute xs (Var x) t) (substitute processed (Var x) t ++ [(Var x, t)])
     go (eq : xs) processed = go xs (processed ++ [eq])
 
-------------------------------------------------------------
--- Apply a substitution to every equation in the equation set.
-------------------------------------------------------------
-sub :: EqSet -> Term -> Term -> EqSet
-sub [] _ _ = []
-sub ((lhs, rhs) : xs) (Var x) t =
-  (subTerm lhs (Var x) t, subTerm rhs (Var x) t)
-    : sub xs (Var x) t
 
-------------------------------------------------------------
--- Apply a substitution recursively to a term.
---
--- If the variable does not match, it remains unchanged.
-------------------------------------------------------------
-subTerm :: Term -> Term -> Term -> Term
-subTerm (Var v) (Var x) t
-  | v == x = t
-  | otherwise = Var v
-subTerm func@(Func {funcArgs = args}) (Var x) t =
-  func
-    { funcArgs =
-        map (\s -> subTerm s (Var x) t) args
-    }
 
 ------------------------------------------------------------
 -- Rule: Occurs Check
@@ -178,3 +156,28 @@ notOccursIn (Var x) (Var y : ys)
 notOccursIn (Var x) (func@(Func {funcArgs = args}) : ys)
   | notOccursIn (Var x) args = notOccursIn (Var x) ys
   | otherwise = False
+
+
+------------------------------------------------------------
+-- Apply a substitution to every equation in the equation set.
+------------------------------------------------------------
+substitute :: EqSet -> Term -> Term -> EqSet
+substitute [] _ _ = []
+substitute ((lhs, rhs) : xs) (Var x) t =
+  (subTerm lhs (Var x) t, subTerm rhs (Var x) t)
+    : substitute xs (Var x) t
+
+------------------------------------------------------------
+-- Apply a substitution recursively to a term.
+--
+-- If the variable does not match, it remains unchanged.
+------------------------------------------------------------
+subTerm :: Term -> Term -> Term -> Term
+subTerm (Var v) (Var x) t
+  | v == x = t
+  | otherwise = Var v
+subTerm func@(Func {funcArgs = args}) (Var x) t =
+  func
+    { funcArgs =
+        map (\s -> subTerm s (Var x) t) args
+    }

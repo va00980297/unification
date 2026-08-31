@@ -3,16 +3,11 @@ module Main where
 import Data.Maybe (isNothing)
 import Term (Term (Var), mkFunc)
 import Unify (conflict, decompose, delete, eliminate, occursCheck, swap, unify)
+import Match (match)
 
 main :: IO ()
 main = do
-  testDelete
-  testConflict
-  testOccursCheck
-  testSwap
-  testDecompose
-  testEliminate
-  testUnify
+  testMatch
 
 ---------------------------------------------------------
 -- assert
@@ -213,3 +208,107 @@ testUnify = do
     (unify [(x, a), (x, b)])
     Nothing
     "conflict via chained elimination"
+
+  ---------------------------------------------------------
+-- MATCH
+---------------------------------------------------------
+testMatch :: IO ()
+testMatch = do
+  print "========== TEST MATCH =========="
+
+  -- Pattern variable matches the same variable
+  -- x ~ x  →  {}
+  assertEqual
+    (match x x)
+    (Just [])
+    "match same variable"
+
+  -- Pattern variable matches a different variable
+  -- x ~ y  →  {x ↦ y}
+  assertEqual
+    (match x y)
+    (Just [(x, y)])
+    "match variable with variable"
+
+  -- Pattern variable matches a constant
+  -- x ~ a  →  {x ↦ a}
+  assertEqual
+    (match x a)
+    (Just [(x, a)])
+    "match variable with constant"
+
+  -- Pattern variable matches a function term
+  -- x ~ f(a)  →  {x ↦ f(a)}
+  assertEqual
+    (match x f1)
+    (Just [(x, f1)])
+    "match variable with function"
+
+  -- Same function symbol and arity
+  -- f(x) ~ f(a)  →  {x ↦ a}
+  assertEqual
+    (match (mkFunc "f" 1 [x]) f1)
+    (Just [(x, a)])
+    "match same function"
+
+  -- Function matching with multiple arguments
+  -- f(x, y) ~ f(a, b)  →  {x ↦ a, y ↦ b}
+  assertEqual
+    (match (mkFunc "f" 2 [x, y]) f2)
+    (Just [(x, a), (y, b)])
+    "match function with multiple arguments"
+
+  -- Nested function matching
+  -- f(x, g(y)) ~ f(a, g(b))  →  {x ↦ a, y ↦ b}
+  assertEqual
+    (match
+      (mkFunc "f" 2 [x, mkFunc "g" 1 [y]])
+      (mkFunc "f" 2 [a, mkFunc "g" 1 [b]]))
+    (Just [(x, a), (y, b)])
+    "match nested functions"
+
+  -- Different function symbols
+  -- f(a) ~ g(a)  →  Nothing
+  assertEqual
+    (match f1 (mkFunc "g" 1 [a]))
+    Nothing
+    "match conflict: different function symbols"
+
+  -- Different arity
+  -- f(a) ~ f(a, b)  →  Nothing
+  assertEqual
+    (match f1 f2)
+    Nothing
+    "match conflict: different arity"
+
+  -- Incompatible structures
+  -- x is a pattern variable, so this one should succeed
+  -- x ~ f(a)  →  {x ↦ f(a)}
+  assertEqual
+    (match x f1)
+    (Just [(x, f1)])
+    "match variable with function"
+
+  -- Function cannot match a variable on the pattern side
+  -- f(a) ~ x  →  Nothing
+  assertEqual
+    (match f1 x)
+    Nothing
+    "match function with target variable"
+
+  -- Shared pattern variable
+  -- f(x, x) ~ f(a, a)  →  {x ↦ a}
+  assertEqual
+    (match (mkFunc "f" 2 [x, x]) (mkFunc "f" 2 [a, a]))
+    (Just [(x, a), (x, a)])
+    "match same pattern variable twice"
+
+  -- Shared pattern variable with different targets
+  -- f(x, x) ~ f(a, b)
+  --
+  -- This case is important because the same pattern variable
+  -- is matched against two different target terms.
+  assertEqual
+    (match (mkFunc "f" 2 [x, x]) (mkFunc "f" 2 [a, b]))
+    (Just [(x, a), (x, b)])
+    "match repeated variable with different targets"
