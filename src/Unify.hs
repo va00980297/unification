@@ -1,5 +1,3 @@
-{-# LANGUAGE DataKinds #-}
-
 module Unify where
 
 import Control.Applicative (Alternative (empty))

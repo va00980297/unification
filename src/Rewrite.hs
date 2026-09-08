@@ -1,6 +1,6 @@
 module Rewrite where
 
-import Term (Sub, Term (Func, Var, funcArgs, funcArity, funcName))
+import Term (Pos, Sub, Term (Func, Var, funcArgs, funcArity, funcName))
 
 ------------------------------------------------------------
 -- Term Rewriting
@@ -14,20 +14,17 @@ import Term (Sub, Term (Func, Var, funcArgs, funcArity, funcName))
 
 ------------------------------------------------------------
 
-
 rewrite :: Term -> Sub -> Maybe Term
 rewrite t [] = Nothing
-rewrite (Var x) (Var l,r):xs = 
-    | l == x = Just r
-    | otherwise = rewrite (Var x) xs
-rewrite Func {funcName = f, funcArity=n,funcArgs = args}    
-    (Func {funcName=l, funcArity = nl, funcArgs=argsl }, r):xs 
-    | f == l && n == nl && args == argsl = Just rhs
-    | otherwise == rewrite ()
-rewrite t _:xs = rewrite t xs
 
--- strategy??
-rewriteFunc :: Func -> Sub -> Maybe Term
-rewriteFunc Func {funcName = f, funcArity=n,funcArgs = args}    
-    (Func {funcName=l, funcArity = nl, funcArgs=argsl }, r):xs 
+positions :: Term -> [Pos]
+positions (Var x) = [[]]
+positions Func {funcName = f, funcArity = n, funcArgs = args} =
+  [] : positionsArgs [] n args
 
+positionsArgs :: Pos -> Int -> [Term] -> [Pos]
+positionsArgs pos 0 [] = []
+positionsArgs [ind] n (t : rest) =
+  map
+    (ind :)
+    (positions t ++ positionsArgs [ind] (n - 1) rest)

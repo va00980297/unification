@@ -49,6 +49,8 @@ type EqSet = [(Term, Term)]
 ------------------------------------------------------------
 type Sub = [(Term, Term)]
 
+type Pos = [Int]
+
 ------------------------------------------------------------
 -- Smart constructor for function terms.
 --

@@ -26,56 +26,66 @@ import Term (Sub, Term (Func, Var, funcArgs, funcArity, funcName))
 --   Nothing  : matching fails
 ------------------------------------------------------------
 match :: Term -> Term -> Maybe Sub
-match (Var p) (Var t)
-    | p == t = Just []
-    | otherwise = Just [(Var p, Var t)] 
-match (Var p) t = Just [(Var p,t)] 
-match Func {funcName = p, funcArity = np, funcArgs = argsp} Func {funcName = t, funcArity = nt, funcArgs = argst}
-    | p == t && np == nt = 
-        case flatten (zipWith match argsp argst) of
-            Just sub -> merge sub
-            Nothing -> Nothing
+match (Var x) (Var y)
+  -- (x, x) return empty, no extra redundance check needed
+  | x == y = Just []
+  | otherwise = Just [(Var x, Var y)]
+match (Var x) t = Just [(Var x, t)]
+match
+  Func {funcName = f, funcArity = n, funcArgs = args1}
+  Func {funcName = g, funcArity = m, funcArgs = args2}
+    | f == g && n == m = matchArgs args1 args2
     | otherwise = Nothing
-match _ _ = Nothing 
+match _ _ = Nothing
 
 ------------------------------------------------------------
--- Combine Matching Results
+-- Match corresponding arguments of two function terms.
 --
--- Match each pair of function arguments independently.
--- Each match produces either:
---
---   Just Sub : the pair matches successfully
---   Nothing  : the pair cannot be matched
---
--- Combine all successful substitutions into one substitution.
--- If any individual match fails, the entire match fails.
+-- Each argument pair is matched independently, and the
+-- resulting substitutions are merged incrementally.
+-- Fails if any argument pair cannot be matched, or if
+-- the combined substitutions are inconsistent.
 ------------------------------------------------------------
-flatten :: [Maybe Sub] -> Maybe Sub
-flatten [] = Just []
-flatten (Just x:xs) = 
-    case (flatten xs) of 
-        Just ys -> Just (x ++ ys)
-        Nothing -> Nothing
-flatten (Nothing:_) = Nothing 
+matchArgs :: [Term] -> [Term] -> Maybe Sub
+matchArgs [] [] = Just []
+matchArgs [] _ = Nothing
+matchArgs _ [] = Nothing
+matchArgs (x : xs) (y : ys) = do
+  sigma <- match x y
+  rest <- matchArgs xs ys
+  merge sigma rest
 
--- !!!
-merge :: Maybe Sub -> Maybe Sub
-merge (Just []) = Just []
-merge (Just (x:xs)) = 
-    case checkBinding x xs of
-        Just ys -> 
-            case merge ys of 
-                Just zs -> Just (x: zs)
-                Nothing -> Nothing
-        Nothing -> Nothing
-merge Nothing = Nothing 
+------------------------------------------------------------
+-- Merge two substitutions into one.
+--
+-- For each binding in the first substitution, check whether
+-- it is consistent with the second. Bindings are added
+-- incrementally via mergeSingle.
+--
+-- Fails if the same variable is bound to two different terms.
+------------------------------------------------------------
+merge :: Sub -> Sub -> Maybe Sub
+merge [] sigma = Just sigma
+merge sigma [] = Just sigma
+merge ((p, t) : xs) sigma =
+  case mergeSingle (p, t) sigma of
+    Just tau -> merge xs tau
+    Nothing -> Nothing
 
-checkBinding :: (Term,Term) -> Sub -> Maybe Sub
-checkBinding x [] = Just []
-checkBinding (p,t) ((q,s):xs)
-    | p == q && t == s = checkBinding (p,t) xs
-    | p == q && t /= s = Nothing
-    | p /= q = 
-        case checkBinding (p,t) xs of
-        Just ys -> Just ((q,s): ys) 
+------------------------------------------------------------
+-- Insert a single binding (p, t) into a substitution.
+--
+-- Three cases:
+--   * p is not in the substitution: add (p, t)
+--   * p is already bound to t:      keep as-is (consistent)
+--   * p is already bound to s ≠ t:  fail (conflict)
+------------------------------------------------------------
+mergeSingle :: (Term, Term) -> Sub -> Maybe Sub
+mergeSingle (p, t) [] = Just [(p, t)]
+mergeSingle (p, t) ((q, s) : ys)
+  | p == q && t == s = Just ((q, s) : ys)
+  | p == q && t /= s = Nothing
+  | p /= q =
+      case mergeSingle (p, t) ys of
+        Just rest -> Just ((q, s) : rest)
         Nothing -> Nothing
