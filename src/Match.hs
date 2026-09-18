@@ -1,3 +1,6 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Used otherwise as a pattern" #-}
 module Match where
 
 import Term (Sub, Term (Func, Var, funcArgs, funcArity, funcName))
@@ -5,87 +8,73 @@ import Term (Sub, Term (Func, Var, funcArgs, funcArity, funcName))
 ------------------------------------------------------------
 -- Matching
 --
--- Matching attempts to make a pattern term identical to a
--- target term by assigning variables that occur in the pattern.
+-- Given a pattern p and a target t, find a substitution σ
+-- such that pσ = t.
 --
 -- Unlike unification:
---   * only pattern variables may be substituted
---   * the target term is never modified
---
--- The algorithm considers the following cases:
---   * variable vs. variable
---   * variable vs. arbitrary term
---   * function vs. function
---   * incompatible terms
---
--- Function terms are matched recursively by matching their
--- corresponding arguments.
+--   * σ is only applied to the pattern, never the target
+--   * variables in the target are treated as constants
 --
 -- Returns:
---   Just Sub : matching succeeds
---   Nothing  : matching fails
+--   Sub  : the substitution σ on success
+--   []   : failure (no such σ exists)
 ------------------------------------------------------------
-match :: Term -> Term -> Maybe Sub
-match (Var x) (Var y)
-  -- (x, x) return empty, no extra redundance check needed
-  | x == y = Just []
-  | otherwise = Just [(Var x, Var y)]
-match (Var x) t = Just [(Var x, t)]
-match
+matchTerm :: Term -> Term -> Sub
+matchTerm (Var x) t = [(Var x, t)]
+matchTerm
   Func {funcName = f, funcArity = n, funcArgs = args1}
   Func {funcName = g, funcArity = m, funcArgs = args2}
-    | f == g && n == m = matchArgs args1 args2
-    | otherwise = Nothing
-match _ _ = Nothing
+    | f == g && n == m = matchList args1 args2
+    | otherwise = []
+matchTerm _ _ = []
 
 ------------------------------------------------------------
--- Match corresponding arguments of two function terms.
+-- Match argument lists of two function terms pairwise.
 --
--- Each argument pair is matched independently, and the
--- resulting substitutions are merged incrementally.
--- Fails if any argument pair cannot be matched, or if
--- the combined substitutions are inconsistent.
+-- After each successful argument match, the resulting
+-- substitution is applied to the remaining pattern arguments
+-- before continuing. This ensures that if the same variable
+-- appears multiple times in the pattern, later occurrences
+-- are already instantiated and can be checked for consistency.
+--
+-- Returns [] if any argument pair fails to match.
 ------------------------------------------------------------
-matchArgs :: [Term] -> [Term] -> Maybe Sub
-matchArgs [] [] = Just []
-matchArgs [] _ = Nothing
-matchArgs _ [] = Nothing
-matchArgs (x : xs) (y : ys) = do
-  sigma <- match x y
-  rest <- matchArgs xs ys
-  merge sigma rest
+matchList :: [Term] -> [Term] -> Sub
+matchList [] [] = []
+matchList [] _ = []
+matchList _ [] = []
+matchList (x : xs) (y : ys) =
+  case matchTerm x y of
+    [] -> []
+    sigma ->
+      sigma
+        ++ matchList (subList sigma xs) (subList sigma ys)
 
 ------------------------------------------------------------
--- Merge two substitutions into one.
+-- Apply a substitution to a single term, recursively.
 --
--- For each binding in the first substitution, check whether
--- it is consistent with the second. Bindings are added
--- incrementally via mergeSingle.
---
--- Fails if the same variable is bound to two different terms.
+-- Variables are replaced if they appear in the substitution.
+-- Function arguments are substituted element-wise.
+-- Unbound variables are left unchanged.
 ------------------------------------------------------------
-merge :: Sub -> Sub -> Maybe Sub
-merge [] sigma = Just sigma
-merge sigma [] = Just sigma
-merge ((p, t) : xs) sigma =
-  case mergeSingle (p, t) sigma of
-    Just tau -> merge xs tau
-    Nothing -> Nothing
+subTerm :: Sub -> Term -> Term
+subTerm [] t = t
+subTerm ((lhs, rhs) : rest) (Var x)
+  | lhs == Var x = rhs
+  | otherwise = subTerm rest (Var x)
+subTerm ((lhs, rhs) : rest) func@(Func {funcArgs = args}) =
+  func
+    { funcArgs = subList ((lhs, rhs) : rest) args
+    }
 
 ------------------------------------------------------------
--- Insert a single binding (p, t) into a substitution.
+-- Apply a substitution to a list of terms.
 --
--- Three cases:
---   * p is not in the substitution: add (p, t)
---   * p is already bound to t:      keep as-is (consistent)
---   * p is already bound to s ≠ t:  fail (conflict)
+-- Each term in the list is substituted independently
+-- using subTerm.
 ------------------------------------------------------------
-mergeSingle :: (Term, Term) -> Sub -> Maybe Sub
-mergeSingle (p, t) [] = Just [(p, t)]
-mergeSingle (p, t) ((q, s) : ys)
-  | p == q && t == s = Just ((q, s) : ys)
-  | p == q && t /= s = Nothing
-  | p /= q =
-      case mergeSingle (p, t) ys of
-        Just rest -> Just ((q, s) : rest)
-        Nothing -> Nothing
+subList :: Sub -> [Term] -> [Term]
+subList [] ts = ts
+subList sigma [] = []
+subList sigma (x : xs) =
+  subTerm sigma x : subList sigma xs
